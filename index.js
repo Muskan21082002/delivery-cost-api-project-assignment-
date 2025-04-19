@@ -2,7 +2,7 @@ const express = require('express');
 const app = express();
 app.use(express.json());
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3100;
 
 // Product mapping and weights
 const productMap = {
@@ -24,7 +24,7 @@ const distances = {
   C3: { C2: 3, L1: 2 }
 };
 
-// Calculates delivery cost per trip
+// Calculate trip cost based on weight and distance
 function calculateCost(weight, distance) {
   if (weight === 0) return 10 * distance;
 
@@ -37,44 +37,40 @@ function calculateCost(weight, distance) {
   return costPerKm * distance;
 }
 
-// DFS function to find minimum cost by partial delivery
-function dfs(current, order, delivered, costSoFar) {
-  // If all products delivered, return total cost
-  if (Object.keys(delivered).length === Object.keys(order).length) {
-    return costSoFar;
-  }
+// Recursive function to explore all delivery combinations
+function dfs(currentLocation, order, delivered, costSoFar) {
+  const allDelivered = Object.keys(order).every(p => delivered[p]);
+  if (allDelivered) return costSoFar;
 
   let minCost = Infinity;
 
-  // Try each center
   for (let center of ['C1', 'C2', 'C3']) {
-    // Pick up undelivered products from this center
-    const products = Object.keys(order).filter(
+    const toPick = Object.keys(order).filter(
       p => !delivered[p] && productMap[p].center === center
     );
 
-    if (products.length === 0) continue;
+    if (toPick.length === 0) continue;
 
-    // Calculate pickup weight and delivery cost
-    let totalWeight = products.reduce((sum, p) => sum + productMap[p].weight * order[p], 0);
+    const weight = toPick.reduce(
+      (sum, p) => sum + productMap[p].weight * order[p], 0
+    );
 
-    // Travel cost to center (if not at center)
-    const travelToCenter = current === center ? 0 :
-      (distances[current]?.[center] ?? distances[center]?.[current]);
-    const travelCost = calculateCost(0, travelToCenter);
+    const travelToCenter = currentLocation === center ? 0 :
+      (distances[currentLocation]?.[center] ?? distances[center]?.[currentLocation]);
 
-    // Delivery cost from center to L1
-    const deliveryCost = calculateCost(totalWeight, distances[center].L1);
+    if (travelToCenter === undefined) continue;
 
-    // Mark delivered
-    products.forEach(p => delivered[p] = true);
+    const costToCenter = calculateCost(0, travelToCenter);
+    const costToL1 = calculateCost(weight, distances[center].L1);
 
-    // Continue DFS from L1
-    const total = dfs('L1', order, delivered, costSoFar + travelCost + deliveryCost);
-    minCost = Math.min(minCost, total);
+    // Mark as delivered
+    toPick.forEach(p => delivered[p] = true);
+
+    const totalCost = dfs('L1', order, delivered, costSoFar + costToCenter + costToL1);
+    minCost = Math.min(minCost, totalCost);
 
     // Backtrack
-    products.forEach(p => delete delivered[p]);
+    toPick.forEach(p => delete delivered[p]);
   }
 
   return minCost;
@@ -82,9 +78,14 @@ function dfs(current, order, delivered, costSoFar) {
 
 app.post('/calculate', (req, res) => {
   const order = req.body;
+  if (!order || Object.keys(order).length === 0) {
+    return res.status(400).json({ error: 'Invalid order input' });
+  }
+
   const delivered = {};
-  let minCost = dfs('C1', order, delivered, 0);
-  res.json({ minimumCost: Math.round(minCost) });
+  const result = dfs('C1', order, delivered, 0);
+
+  res.json({ minimumCost: Math.round(result) });
 });
 
 app.get('/', (req, res) => {
