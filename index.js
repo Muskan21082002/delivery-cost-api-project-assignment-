@@ -28,7 +28,7 @@ const distances = {
 function calculateTripCost(weight, distance) {
   if (weight === 0) return 10 * distance;
   if (weight<=5)    return 10 * distance;
-  let costPerUnit = 10;
+  let costPerUnit = 0;
   while (weight > 0) {
     costPerUnit += 8;
     weight -= 5;
