@@ -14,55 +14,67 @@ const productMap = {
   F: { center: 'C2', weight: 15 },
   G: { center: 'C3', weight: 0.5 },
   H: { center: 'C3', weight: 1 },
-  I: { center: 'C3', weight: 2 },
+  I: { center: 'C3', weight: 2 }
 };
 
-// Distance matrix (bidirectional)
+// Distance matrix
 const distances = {
   C1: { C2: 4, L1: 3 },
   C2: { C1: 4, C3: 3, L1: 2.5 },
   C3: { C2: 3, L1: 2 }
 };
 
-// Helper to calculate cost by weight and distance
-function calculateTripCost(weight, distance) {
+// Calculates delivery cost per trip
+function calculateCost(weight, distance) {
   if (weight === 0) return 10 * distance;
-  if (weight<=5)    return 10 * distance;
-  let costPerUnit = 10;
+
+  let costPerKm = 10;
+  weight -= 5;
   while (weight > 0) {
-    costPerUnit += 8;
+    costPerKm += 8;
     weight -= 5;
-    costPerUnit+=10;
   }
-  return costPerUnit * distance;
+  return costPerKm * distance;
 }
 
-// Recursive route cost calculation
-function findMinCost(order, current, visitedCenters, delivered, costSoFar) {
+// DFS function to find minimum cost by partial delivery
+function dfs(current, order, delivered, costSoFar) {
+  // If all products delivered, return total cost
   if (Object.keys(delivered).length === Object.keys(order).length) {
     return costSoFar;
   }
 
   let minCost = Infinity;
 
-  for (let product in order) {
-    if (delivered[product]) continue;
+  // Try each center
+  for (let center of ['C1', 'C2', 'C3']) {
+    // Pick up undelivered products from this center
+    const products = Object.keys(order).filter(
+      p => !delivered[p] && productMap[p].center === center
+    );
 
-    const { center, weight } = productMap[product];
-    if (!visitedCenters.has(center)) {
-      // Move to center
-      const toCenter = distances[current]?.[center] || distances[center]?.[current];
-      if (toCenter === undefined) continue;
-      const travelEmptyCost = calculateTripCost(0, toCenter);
-      visitedCenters.add(center);
-      const moveToL1 = distances[center].L1;
-      const deliveryCost = calculateTripCost(weight * order[product], moveToL1);
-      delivered[product] = true;
-      const total = findMinCost(order, center, visitedCenters, delivered, costSoFar + travelEmptyCost + deliveryCost);
-      minCost = Math.min(minCost, total);
-      delivered[product] = false;
-      visitedCenters.delete(center);
-    }
+    if (products.length === 0) continue;
+
+    // Calculate pickup weight and delivery cost
+    let totalWeight = products.reduce((sum, p) => sum + productMap[p].weight * order[p], 0);
+
+    // Travel cost to center (if not at center)
+    const travelToCenter = current === center ? 0 :
+      (distances[current]?.[center] ?? distances[center]?.[current]);
+    const travelCost = calculateCost(0, travelToCenter);
+
+    // Delivery cost from center to L1
+    const deliveryCost = calculateCost(totalWeight, distances[center].L1);
+
+    // Mark delivered
+    products.forEach(p => delivered[p] = true);
+
+    // Continue DFS from L1
+    const total = dfs('L1', order, delivered, costSoFar + travelCost + deliveryCost);
+    minCost = Math.min(minCost, total);
+
+    // Backtrack
+    products.forEach(p => delete delivered[p]);
   }
 
   return minCost;
@@ -70,34 +82,14 @@ function findMinCost(order, current, visitedCenters, delivered, costSoFar) {
 
 app.post('/calculate', (req, res) => {
   const order = req.body;
-  const centers = ['C1', 'C2', 'C3'];
-  let minTotalCost = Infinity;
-
-  for (let center of centers) {
-    const tempDelivered = {};
-    const visited = new Set();
-    visited.add(center);
-    let initialCost = 0;
-
-    for (let product in order) {
-      if (productMap[product].center === center) {
-        const weight = productMap[product].weight * order[product];
-        const toL1 = distances[center].L1;
-        initialCost += calculateTripCost(weight, toL1);
-        tempDelivered[product] = true;
-      }
-    }
-
-    const total = findMinCost(order, center, visited, tempDelivered, initialCost);
-    minTotalCost = Math.min(minTotalCost, total);
-  }
-
-  res.json({ minimumCost: Math.round(minTotalCost) });
+  const delivered = {};
+  let minCost = dfs('C1', order, delivered, 0);
+  res.json({ minimumCost: Math.round(minCost) });
 });
+
 app.get('/', (req, res) => {
   res.send('API is running');
 });
-
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
